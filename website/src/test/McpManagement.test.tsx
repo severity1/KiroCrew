@@ -334,7 +334,9 @@ describe('sharing assessment', () => {
     expect(await screen.findByText(/unsuitable for sharing/i)).toBeTruthy()
     // The translated reason AND the server's own verbatim detail, which is data
     // and must never be translated or dropped.
-    expect(screen.getByText(/reads a credential whose value differs per session/i)).toBeTruthy()
+    expect(
+      screen.getByText(/declares a credential that a shared backend never receives/i),
+    ).toBeTruthy()
     expect(screen.getByText('AWS_SESSION_TOKEN')).toBeTruthy()
   })
 
@@ -793,7 +795,7 @@ describe('stub every server the evidence allows', () => {
     strength: 'disqualified',
     recommendStub: false,
     recommendShare: false,
-    reasons: [{ code: 'first_party_session_scoped', detail: '' }],
+    reasons: [{ code: 'session_bound_by_construction', detail: '' }],
   }
   const idleProgress = { running: false, done: 0, total: 0, error: '' }
 
