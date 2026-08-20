@@ -365,10 +365,26 @@ def test_glab_bin_accepts_the_first_trusted_candidate(monkeypatch, tmp_path):
     assert gl._glab_bin() == str(present)
 
 
-def test_glab_bin_refuses_windows(monkeypatch):
-    monkeypatch.setattr(gl.sys, "platform", "win32")
-    with pytest.raises(gl.ProviderCliError, match="POSIX"):
+@pytest.mark.skipif(sys.platform != "win32", reason="the Windows resolution path")
+def test_glab_bin_no_longer_short_circuits_on_windows(monkeypatch):
+    """Windows is resolved and validated like any other host.
+
+    The old behaviour was an unconditional ``ProviderCliError`` naming WSL,
+    which fired before candidate discovery. It is gone: the platform is no
+    longer a special case, so a Windows host with no acceptable ``glab``
+    must fail for the ordinary reason (nothing trustworthy found) rather than
+    for being Windows.
+    """
+    from kiro_crew.dashboard.handlers import source_providers
+
+    monkeypatch.setattr(gl, "_glab_bin_cache", "")
+    monkeypatch.delenv("KIROCREW_ISSUE_RADAR_GLAB", raising=False)
+    monkeypatch.setattr(source_providers, "provider_executable_candidates", lambda name: ())
+
+    with pytest.raises(gl.ProviderSetupError) as excinfo:
         gl._glab_bin()
+    assert "POSIX" not in str(excinfo.value)
+    assert "WSL" not in str(excinfo.value)
 
 
 # ── the API layer: pagination and error mapping ──────────────────────────────

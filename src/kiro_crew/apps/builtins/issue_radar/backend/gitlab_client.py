@@ -50,7 +50,6 @@ import json
 import os
 import re
 import subprocess
-import sys
 from datetime import datetime, timedelta, timezone
 from urllib.parse import quote, urlparse
 
@@ -242,11 +241,6 @@ def _glab_bin() -> str:
     global _glab_bin_cache
     if _glab_bin_cache:
         return _glab_bin_cache
-    if sys.platform == "win32":
-        raise ProviderCliError(
-            "Issue Radar requires a POSIX platform (macOS/Linux); "
-            "Windows is not supported — use WSL to run the Kiro Crew gateway"
-        )
 
     from kiro_crew.dashboard.handlers.source_providers import (
         _validate_provider_executable,
