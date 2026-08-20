@@ -21,7 +21,7 @@ import { i18nT } from '../../i18n/t'
 import { useLanguage } from '../../i18n/LanguageProvider'
 
 import { loadUsage, recordUse, type UsageMap } from './frecency'
-import { rankRootRows, type RankedRow, type RootGroup, type RootRow } from './rootIndex'
+import { rankRootRows, type RankedRow, type RootGroup, type RootRow, type RootRowKind } from './rootIndex'
 
 /**
  * Command Bar — the ⌘K launcher.
@@ -56,6 +56,23 @@ function groupLabel(group: RootGroup): string {
     case 'settings':
       return i18nT('apps.commandBar.group_settings')
   }
+}
+
+/**
+ * The row's own type, for the right-aligned label.
+ *
+ * Keyed off `kind` first: a `view` row opens a surface inside the bar, which is a
+ * different promise from a row that acts and closes, and that difference matters
+ * more to the reader than which group it was filed under. Everything else is named
+ * by its group. There is deliberately no "Quicklink" case -- that group was removed
+ * from this surface for having no writer, so a label for it would name a row type
+ * the bar cannot produce.
+ */
+function kindLabel(row: { kind: RootRowKind; group: RootGroup }): string {
+  if (row.kind === 'view') return i18nT('apps.commandBar.kind.view')
+  if (row.group === 'apps') return i18nT('apps.commandBar.kind.app')
+  if (row.group === 'settings') return i18nT('apps.commandBar.kind.setting')
+  return i18nT('apps.commandBar.kind.command')
 }
 
 function groupIcon(group: RootGroup) {
@@ -434,7 +451,7 @@ export default function CommandBarOverlay({
             aria-controls={listId}
             aria-autocomplete="list"
             aria-activedescendant={rowCount > 0 ? rowId(selected) : undefined}
-            className="flex-1 min-w-0 bg-transparent border-none outline-none rounded text-[13px] text-text placeholder:text-muted focus-visible:ring-1 focus-visible:ring-accent/40"
+            className="flex-1 min-w-0 bg-transparent border-none outline-none rounded text-[13px] text-text placeholder:text-muted"
           />
         </div>
 
@@ -524,6 +541,15 @@ export default function CommandBarOverlay({
                         {isRoot && rr.subtitle && (
                           <span className="block truncate text-[11px] text-muted">{rr.subtitle}</span>
                         )}
+                      </span>
+                      {/* What activating this row will produce, right-aligned. The
+                          group header already says which section you are in, but it
+                          scrolls away and says nothing once a query mixes the groups
+                          -- this label travels with the row. `view` rows are called
+                          out separately from their group because they open a surface
+                          inside the bar rather than doing something and closing. */}
+                      <span className="shrink-0 text-[11px] text-muted">
+                        {isRoot ? kindLabel(rr) : i18nT('apps.commandBar.kind.session')}
                       </span>
                       {isRoot && rr.kind === 'view' && (
                         <ArrowRight size={13} className="lucide-inline text-muted shrink-0" />

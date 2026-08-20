@@ -331,6 +331,18 @@ describe('CommandBarOverlay rows', () => {
     }
   })
 
+  it('labels every row with what activating it produces', () => {
+    // The group header scrolls away and stops being true once a query mixes the
+    // groups, so the kind travels with the row. `view` is called out separately
+    // from its group because it opens a surface inside the bar instead of acting
+    // and closing -- that difference is the one the reader acts on.
+    mount()
+    expect(rowByText('New Session').textContent).toContain('Command')
+    expect(rowByText('Search Sessions').textContent).toContain('View')
+    expect(rowByText('Search Sessions').textContent).not.toContain('Command')
+    expect(rowByText('Toggle Theme').textContent).toContain('Command')
+  })
+
   it('reports a failed session search instead of claiming no matches', async () => {
     // A rejected search leaves `data` undefined, which by row count alone looks
     // identical to an empty result -- so the empty copy would tell the user their

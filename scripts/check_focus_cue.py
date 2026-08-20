@@ -38,6 +38,11 @@ non-failing report, so the backlog stays visible without being a build break.
 * An element that supplies its own cue — any ``focus-visible:``/``focus:``
   utility that paints (ring, border, background, shadow, text), or the repo's
   ``focus-ring`` class.
+* A ``role="combobox"`` input carrying ``aria-activedescendant``: focus stays in
+  the field for the life of the surface while the arrow keys move a visible
+  selection through the listbox, so the highlighted OPTION is the cue. A
+  ``focus-visible`` utility on such a field never turns off, and draws a box or
+  band no launcher UI has.
 * An element whose cue is carried by a **descendant** through Tailwind's
   ``group`` mechanism: the element itself has the ``group`` marker class and a
   child has ``group-focus-visible:ring-2`` or similar. Such an element suppresses
@@ -277,6 +282,32 @@ def descendant_supplies_cue(src: str, value: str, tag_end: int) -> bool:
     )
 
 
+def is_active_descendant_owner(tag_text: str) -> bool:
+    """True for a combobox input whose cue is the active option, by ARIA design.
+
+    A ``role="combobox"`` input paired with ``aria-activedescendant`` keeps DOM focus
+    in the text field while the arrow keys move a *visible* selection through the
+    listbox. The cue that matters is the highlighted option -- it is the thing that
+    says what Enter will do -- and every launcher built this way (Raycast, Spotlight,
+    VS Code's palette) paints the row, not the field. Painting the field as well is
+    not a second cue but a permanent one: the input is focused for the entire life of
+    the surface, so a ``focus-visible`` utility on it never turns off, and what it
+    draws is a box or band around the input that no such UI has.
+
+    This is the same principle as the descendant-cue exemption above -- the
+    replacement cue lives elsewhere and is the better one -- so it is spelled as its
+    own predicate rather than folded into that one, because the mechanism differs:
+    there the cue is a Tailwind `group-` child, here it is the ARIA active option,
+    which may be rendered far from this tag.
+
+    Requiring BOTH attributes is deliberate. ``role="combobox"`` alone can sit on a
+    field with no listbox wired up, and ``aria-activedescendant`` alone is a mistake
+    worth keeping visible; together they are only ever written by a real
+    combobox, which is the case this exempts.
+    """
+    return 'role="combobox"' in tag_text and "aria-activedescendant" in tag_text
+
+
 def scan_source(path: str, raw: str) -> list[tuple[Violation, set[int]]]:
     """Violations in ``raw``, each with the line span the element occupies."""
     src = blank_comments(raw)
@@ -305,6 +336,8 @@ def scan_source(path: str, raw: str) -> list[tuple[Violation, set[int]]]:
         if not reachable:
             continue
         if descendant_supplies_cue(src, value, tag_at + len(tag_text)):
+            continue
+        if is_active_descendant_owner(tag_text):
             continue
         first = raw[:tag_at].count("\n") + 1
         last = raw[:span[1]].count("\n") + 1
