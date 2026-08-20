@@ -36,8 +36,9 @@ from kiro_crew.cron import (
     is_valid_timezone,
 )
 from kiro_crew.cron_script import resolve_script_path
-from kiro_crew.cron_trigger import trigger_cron_job
-from kiro_crew.mcp_core import _resolve_session_key
+from kiro_crew.cron_trigger import _JOB_ID_RE, trigger_cron_job
+from kiro_crew.mcp_caller import current_caller
+from kiro_crew.mcp_core import _resolve_session_key, _resolve_session_key_strict
 from kiro_crew.mcp_shared import call_tool_with_logging, run_mcp_stdio_loop
 from kiro_crew.platform import current_context
 from kiro_crew.platform import redact_via_context as redact
@@ -1455,17 +1456,105 @@ def _call_tool(name: str, raw_args: dict[str, Any]) -> str:
     )
 
 
+def _caller_channel_id() -> str:
+    """The channel the calling session lives in, per the injected caller block.
+
+    ``KIROCREW_CHANNEL_ID`` has the same defect the session key had: process
+    environment can only ever name ONE session's channel, and gatewayd forwards no
+    such variable to a shared backend, so a pooled ``cron_add`` defaulted the
+    delivery channel to nothing. The caller block carries ``channelId`` alongside
+    the session key -- same envelope, same trust, already stripped-and-reinjected
+    by gatewayd -- so it is the source that stays correct when pooled. The env var
+    remains the fallback for a non-gateway launch.
+    """
+    ctx = current_caller()
+    return ctx.channel_id if ctx is not None else ""
+
+
+def _caller_is_cli() -> bool:
+    """True for the admin CLI surface, which bypasses per-session ownership."""
+    return os.environ.get("KIROCREW_CLI", "") == "1"
+
+
+def _authz_session_key() -> str:
+    """The session key an ownership decision may be made from, or ``""``.
+
+    STRICT resolution, deliberately. The lenient
+    :func:`mcp_core._resolve_session_key` ends its fallback chain in a ``/proc``
+    ancestor walk over the per-pid session file -- which ``mcp_core`` itself
+    documents as "agent-writable and therefore forgeable". Reading identity from
+    it is tolerable for labelling an audit row; deciding who may delete whose
+    scheduled job is not. This module is deliberately NOT a call site for that
+    file: the strict resolver accepts only the gateway-injected caller block,
+    ``KIROCREW_SESSION_KEY``, or ``KIROCREW_HOST_PID`` plus its HMAC sidecar --
+    three sources the gateway authors and an agent cannot write.
+
+    Empty means "this call did not arrive with an identity the gateway vouches
+    for", which is a non-gateway launch (neither the ACP spawn path nor the
+    sandbox launcher ran). It is NOT the same as "single user, so anything goes":
+    see :func:`_unidentified_caller_refusal`.
+    """
+    return _resolve_session_key_strict()
+
+
+#: Rows written before ``kirocrew-cron`` consumed the caller block. A pooled
+#: backend resolved no identity, so ``cron_add`` persisted ``session_key=""`` and
+#: the job has no recorded owner.
+#:
+#: These stay visible to every session and mutable by every session -- the same
+#: access they have today. Denying them instead would strand every cron a user
+#: created from chat before this change behind the CLI, and there is no honest way
+#: to guess which session should inherit one. The set cannot grow: ``cron_add``
+#: now refuses rather than minting another ownerless row, so the grandfather
+#: clause drains and can eventually be deleted.
+_UNOWNED = ""
+
+
+def _unidentified_caller_refusal(tool_name: str) -> str:
+    """The single answer every MUTATING cron tool gives an unidentifiable caller.
+
+    Before the caller block was consumed here, a pooled backend resolved no
+    session key and each mutating path invented its own reading of that: the
+    per-job ownership gate returned "allow", ``cron_list`` skipped its filter,
+    ``cron_add`` stored an ownerless row, and only ``cron_remove_all`` refused.
+    Two of those are fail-open, which made the ownership gate dead code for every
+    caller arriving through the gateway -- the case the gate exists for.
+
+    One rule instead: reads still work unfiltered (an unidentifiable caller is not
+    a reason to hide a single-user box's own jobs from it), and anything that
+    WRITES refuses. The CLI keeps its admin bypass, so the refusal never strands
+    an operator -- it names that route.
+    """
+    try:
+        sel().log_tool_invocation(
+            session_key="mcp_cron",
+            source="mcp",
+            tool_name=tool_name,
+            tool_kind="authz",
+            outcome="denied",
+            error="caller identity unresolved; refusing a write",
+        )
+    except Exception:
+        pass
+    return (
+        "Error: cannot determine which session is calling, so this write is "
+        "refused. Reads still work. Manage jobs from the CLI "
+        "(`kirocrew cron ...`), which carries admin authority."
+    )
+
+
 def _check_cron_job_ownership(svc: "CronService", job_id: str) -> str | None:
     """Return an error string if the caller doesn't own this job, else None."""
-    session_key = _resolve_session_key()
-    is_cli = os.environ.get("KIROCREW_CLI", "") == "1"
-    if is_cli:
+    if _caller_is_cli():
         return None  # CLI admin bypass
+    session_key = _authz_session_key()
     if not session_key:
-        return None  # No session context (single-user local mode) — allow
+        return _unidentified_caller_refusal(f"cron:{job_id}")
     job = svc.get_job(job_id)
     if not job:
         return f"Job not found: {job_id}"
+    if job.session_key == _UNOWNED:
+        return None  # Grandfathered pre-caller-block row; see _UNOWNED.
     if job.session_key != session_key:
         try:
             sel().log_tool_invocation(
@@ -1480,6 +1569,11 @@ def _check_cron_job_ownership(svc: "CronService", job_id: str) -> str | None:
     return None
 
 
+def _visible_to(jobs: list[CronJob], session_key: str) -> list[CronJob]:
+    """The jobs *session_key* may see: its own, plus ownerless legacy rows."""
+    return [j for j in jobs if j.session_key in (session_key, _UNOWNED)]
+
+
 def _call_tool_inner(name: str, args: dict[str, Any]) -> str:
     """Execute a cron tool (post-validation)."""
     svc = CronService(base_dir=config_dir())
@@ -1490,11 +1584,13 @@ def _call_tool_inner(name: str, args: dict[str, Any]) -> str:
         jobs = svc.list_jobs(include_disabled=True)
         if not jobs:
             return "No cron jobs."
-        # Ownership filter: non-CLI callers see only their own jobs
-        session_key = _resolve_session_key()
-        is_cli = os.environ.get("KIROCREW_CLI", "") == "1"
-        if not is_cli and session_key:
-            jobs = [j for j in jobs if j.session_key == session_key]
+        # Ownership filter: non-CLI callers see their own jobs, plus any
+        # ownerless legacy row (see _UNOWNED). An unresolved identity is NOT a
+        # reason to hide a single-user box's jobs from it, so an empty key falls
+        # through unfiltered -- reads are the one path that keeps working.
+        session_key = _authz_session_key()
+        if not _caller_is_cli() and session_key:
+            jobs = _visible_to(jobs, session_key)
             if not jobs:
                 return "No cron jobs."
         # Drill-in: ids filter forces full bodies for matching jobs only.
@@ -1554,7 +1650,7 @@ def _call_tool_inner(name: str, args: dict[str, Any]) -> str:
             return f"Error: resolved time {local.strftime('%I:%M %p %Z')} is in the past"
         channel = (args.get("channel") or "").strip() or None
         if channel is None:
-            channel = os.environ.get("KIROCREW_CHANNEL_ID") or None
+            channel = _caller_channel_id() or os.environ.get("KIROCREW_CHANNEL_ID") or None
         if not every and not cron_expr and not at_ts:
             return "Error: provide every, cron_expr, at, delay, or at_time"
         # Validate model BEFORE add_job so an invalid value never leaves an
@@ -1596,7 +1692,13 @@ def _call_tool_inner(name: str, args: dict[str, Any]) -> str:
         agent = args.get("agent", "")
         silent = args.get("silent", False)
         approval_mode = args.get("approval_mode", "")
-        session_key = _resolve_session_key()
+        session_key = _authz_session_key()
+        if not session_key and not _caller_is_cli():
+            # Refuse rather than mint another ownerless row. A job whose owner is
+            # unknown is precisely what made the ownership gate unenforceable, and
+            # every such row has to be grandfathered forever (see _UNOWNED). The
+            # CLI keeps creating jobs; so does any session the gateway can name.
+            return _unidentified_caller_refusal("cron_add")
         persistent_session = args.get("persistent_session")
         minimal_context = args.get("minimal_context")
         hide_in_chat = args.get("hide_in_chat")
@@ -1751,20 +1853,12 @@ def _call_tool_inner(name: str, args: dict[str, Any]) -> str:
         jobs = svc.list_jobs(include_disabled=True)
         if not jobs:
             return "No cron jobs to remove."
-        session_key = _resolve_session_key()
-        is_cli = os.environ.get("KIROCREW_CLI", "") == "1"
+        session_key = _authz_session_key()
+        is_cli = _caller_is_cli()
         if not is_cli:
             if not session_key:
-                sel().log_tool_invocation(
-                    session_key="mcp_cron",
-                    source="mcp",
-                    tool_name="cron_remove_all",
-                    tool_kind="authz",
-                    outcome="denied",
-                    error="no session key set",
-                )
-                return "Error: no session key set; cannot determine job ownership."
-            jobs = [j for j in jobs if j.session_key == session_key]
+                return _unidentified_caller_refusal("cron_remove_all")
+            jobs = _visible_to(jobs, session_key)
             if not jobs:
                 return "No cron jobs owned by this session."
             sel().log_tool_invocation(
@@ -1821,6 +1915,13 @@ def _call_tool_inner(name: str, args: dict[str, Any]) -> str:
 
     if name == "cron_trigger":
         jid = args["job_id"]
+        # Shape BEFORE ownership: the id is about to be interpolated into a URL,
+        # and a malformed one deserves its own message rather than the ownership
+        # gate's deliberately vague "job not found". The check inside
+        # ``trigger_cron_job`` is the enforcing one; this only makes its reason
+        # reachable, since an unknown id never survives the ownership lookup.
+        if not _JOB_ID_RE.fullmatch(jid):
+            return f"Invalid job ID format: {jid}"
         # Ownership check
         own_err = _check_cron_job_ownership(svc, jid)
         if own_err:
@@ -1847,6 +1948,33 @@ def _call_tool_inner(name: str, args: dict[str, Any]) -> str:
     return f"Unknown tool: {name}"
 
 
+#: Whether this server advertises ``kirocrew.caller-identity`` -- i.e. whether it
+#: consumes the per-call caller block gatewayd injects instead of reading identity
+#: from its own process. True here because it does: every authorization decision
+#: goes through :func:`_authz_session_key`, whose first source is that block.
+#:
+#: Advertising is not cosmetic. ``mcp_gateway/backend.py`` strips any client-forged
+#: caller block from EVERY forwarded request and re-injects its own only when the
+#: backend advertised this capability -- so without the advertisement the block
+#: never arrives, and this server's resolver reads an empty identity no matter how
+#: correctly it is written. Nothing declines to POOL an unadvertised backend
+#: (``rewriter.UNPOOLABLE_SERVERS`` is empty and documents that the capability is
+#: read only to decide injection), so the unadvertised state was not "per-session
+#: spawn" -- it was pooled AND identity-blind.
+#:
+#: A module-level constant rather than a bare argument below so the value is
+#: readable without executing :func:`run_mcp_server`, and so
+#: ``test/test_mcp_managed_caller_identity.py`` can assert it against the argument
+#: actually handed to the shim.
+ADVERTISE_CALLER_IDENTITY = True
+
+
 def run_mcp_server() -> None:
     """Run MCP stdio server — reads JSON-RPC from stdin, writes to stdout."""
-    run_mcp_stdio_loop("kirocrew-cron", "1.0.0", _list_tools, _call_tool)
+    run_mcp_stdio_loop(
+        "kirocrew-cron",
+        "1.0.0",
+        _list_tools,
+        _call_tool,
+        advertise_caller_identity=ADVERTISE_CALLER_IDENTITY,
+    )
