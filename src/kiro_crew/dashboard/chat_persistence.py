@@ -1050,6 +1050,8 @@ def _rehydrate_slot_from_history(
             state._restricted_keys.add(f"dashboard:{slot_name}")
         if meta.get("forked_from") is not None:
             slot.forked_from = meta["forked_from"]
+        if meta.get("handoff"):
+            slot.handoff = True
         if meta.get("linked_session_key"):
             # Rebind the slot to the session its conversation actually runs on.
             # Skipped, the slot would answer from a dashboard-only session and the
@@ -1559,6 +1561,8 @@ def _apply_recent_session(
         state._restricted_keys.add(f"dashboard:{slot_name}")
     if meta.get("forked_from") is not None:
         slot.forked_from = meta["forked_from"]
+    if meta.get("handoff"):
+        slot.handoff = True
     if meta.get("linked_session_key"):
         slot.linked_session_key = str(meta["linked_session_key"])
     elif is_channel_session_key(key) and state.sessions:
@@ -2841,6 +2845,8 @@ def _save_slot_to_history(
                         # "crashed mid-turn" on reload. Nested under the binding
                         # because it is meaningless without one.
                         fields["relay_in_flight"] = True
+                if slot.handoff:
+                    fields["handoff"] = True
                 if getattr(slot, "_tab_id", None):
                     fields["tab_id"] = slot._tab_id
                 if getattr(slot, "_auto_tagged", False):
@@ -3176,6 +3182,8 @@ def _save_slot_to_history(
                 meta_line["human_seen"] = True
             if slot.forked_from is not None:
                 meta_line["forked_from"] = slot.forked_from
+            if slot.handoff:
+                meta_line["handoff"] = True
             if slot.linked_session_key:
                 # The slot's conversation lives on another session (a channel
                 # thread, a cron job). Nothing recreates that binding on

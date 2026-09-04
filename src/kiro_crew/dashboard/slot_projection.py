@@ -279,6 +279,7 @@ class SlotProjection:
             "theme_consent_sha": slot.theme_consent_sha,
             "memory_mode": slot.memory_mode,
             "forked_from": slot.forked_from,
+            "handoff": slot.handoff,
             "linked_session_key": slot.linked_session_key,
             "app": slot._app,
             "origin": slot._origin,

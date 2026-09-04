@@ -6,6 +6,7 @@ import GithubLogo from '../components/icons/GithubLogo'
 import GitlabLogo from '../components/icons/GitlabLogo'
 import { FolderBody } from '../components/FolderBody'
 import ErrorNotice from '../components/ErrorNotice'
+import SessionLineage from '../components/SessionLineage'
 import JiraLogo from '../components/icons/JiraLogo'
 import { sourceProviderMeta } from '../utils/sourceProviderMeta'
 import FolderGlyph from '../components/FolderGlyph'
@@ -7048,6 +7049,14 @@ function ChatSidebar({
             compact={sidebarWidth < 220} />
         )}
       </AnimatePresence>
+
+      {/* Session lineage tree — parent→child (fork/handoff) relationships among
+          the live sessions. Renders nothing when no session participates in a
+          lineage, so it costs no vertical space in the common case. Mounted here
+          (below the active list, above the Older Sessions footer) deliberately:
+          this is OUTSIDE the DnD SortableContext/DndContext above, so it cannot
+          perturb the sidebar's folder/session drag collision logic. */}
+      <SessionLineage />
 
       {/* When expanded: doubles as the resize handle (accent on hover, drag to resize, dbl-click to collapse).
           When collapsed: just a static 1px divider between sessions and the Older Sessions footer. */}

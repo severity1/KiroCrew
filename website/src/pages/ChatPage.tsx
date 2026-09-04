@@ -5824,7 +5824,7 @@ export default function ChatPage({ mode, embedded, embedMode, popout, noUrlSync 
       // so a turn sent in that window would run in the default directory — agent
       // tools writing to the wrong checkout. It also means a scoping failure can
       // render its error on the still-mounted card instead of unmounting it.
-      const slot = await dispatch(createSlot({ mode, project: path, activate: false })).unwrap()
+      const slot = await dispatch(createSlot({ mode, project: path, activate: false, forked_from: originSlot || undefined, handoff: item.kind === 'handover' })).unwrap()
       slotKey = slot?.key || ''
     } catch {
       // The worktree exists but the session does not. Say so, and name the path:

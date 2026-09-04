@@ -71,6 +71,7 @@ _TO_DICT_KEYS = (
     "theme_consent_sha",
     "memory_mode",
     "forked_from",
+    "handoff",
     "linked_session_key",
     "app",
     "origin",

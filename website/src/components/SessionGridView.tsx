@@ -21,6 +21,7 @@ type Slot = {
   agent?: string
   last_activity_ts?: string
   forked_from?: string | null
+  handoff?: boolean
 }
 
 /**

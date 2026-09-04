@@ -2639,6 +2639,20 @@ async def api_chat_slot_create(request: web.Request) -> web.Response:
         artifact_slug = body.get("artifact") if isinstance(body, dict) else None
         if isinstance(artifact_slug, str) and ARTIFACT_SLUG_RE.match(artifact_slug):
             slot._artifact = artifact_slug
+        # Lineage: a session opened by a follow-up/handover card records the slot
+        # it was spun off from, so the sessions view can draw the parent→child
+        # tree. Only for a slot this request just created (is_new_slot) — an
+        # already-open slot addressed by name keeps its own lineage. The parent
+        # must be a real slot; a dangling reference is dropped rather than stored
+        # so the tree never points at a non-existent node. ``handoff`` marks a
+        # kind='handover' continuation so the edge reads as a tangent, not a fork.
+        if is_new_slot and isinstance(body, dict):
+            _parent = body.get("forked_from")
+            if isinstance(_parent, str) and _parent:
+                _parent_key = _normalize_slot_key(_parent)
+                if _parent_key in state._slots and _parent_key != slot.key:
+                    slot.forked_from = _parent_key
+                    slot.handoff = bool(body.get("handoff"))
         # File the slot before the coalesced broadcast, so its first appearance
         # in every client is already inside the folder.
         folder_applied = False
