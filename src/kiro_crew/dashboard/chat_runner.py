@@ -7137,6 +7137,7 @@ async def _run_chat(
             # context, taking the skills index with it. Read-and-clear the flag
             # here so this turn re-injects the index exactly once.
             _needs_reinjection = state.sessions.consume_needs_reinjection(session_key)
+            _handoff_offer = state.sessions.consume_handoff_offer_pending(session_key)
             full_message, _ = await run_in_embed_pool(
                 state.context_builder.build_message,
                 message,
@@ -7168,6 +7169,7 @@ async def _run_chat(
                 ),
                 user_span_out=_user_span,
                 needs_reinjection=_needs_reinjection,
+                handoff_offer=_handoff_offer,
             )
             # The reported span is valid for the message as build_message
             # returned it. Several later steps PREPEND to the finished prompt
@@ -10875,6 +10877,7 @@ async def _run_chat(
         ):
             _maybe_consolidate(state, slot)
         state.sessions.check_context_usage(session_key, client)
+        state.sessions.maybe_arm_handoff_offer(session_key, client)
         pct = client.context_usage_pct()
         state.broadcast_context_usage(slot.key, _context_usage_payload(slot.key, client))
         if (

@@ -68,6 +68,14 @@ DEFAULT_SESSION_TIMEOUT = 3600  # 60 min
 # with nothing on disk to show it, which is why ``pool_size`` is named the same
 # way (``DEFAULT_POOL_SIZE``) rather than written twice.
 DEFAULT_AUTOCOMPACT_PCT = 70.0
+# Context-usage percentage at which the agent is nudged to OFFER a session
+# handoff (a fresh session that carries a handoff summary) instead of letting
+# the backend silently compact in place. Sits BELOW autocompact_pct so the
+# offer window opens before compaction fires; 0 disables the offer entirely.
+# Named here (not restated in the load fallback) for the same reason as
+# DEFAULT_AUTOCOMPACT_PCT: the dataclass default and the dict-load fallback
+# must not disagree with nothing on disk to show it.
+DEFAULT_HANDOFF_OFFER_PCT = 55.0
 # Margin BELOW the configured compaction threshold at which the "context is
 # getting large" warning fires. A margin rather than an absolute percentage
 # because both consumers test compaction FIRST in an if/elif chain
@@ -1279,6 +1287,15 @@ class SessionConfig:
         metadata=_meta(
             "Auto-Compact Threshold",
             "Context usage percentage at which auto-compaction triggers (5-90).",
+        ),
+    )
+    handoff_offer_pct: float = field(
+        default=DEFAULT_HANDOFF_OFFER_PCT,
+        metadata=_meta(
+            "Handoff Offer Threshold",
+            "Context usage percentage at which the agent is nudged to offer a "
+            "session handoff, before auto-compaction fires. Must be below the "
+            "Auto-Compact Threshold. 0 disables the offer (0-89).",
         ),
     )
     pool_size: int = field(
@@ -3529,6 +3546,18 @@ MAX_SUBAGENTS_FIXED_FLOOR = 3
 # read instead.
 AUTOCOMPACT_PCT_MIN = 5.0
 AUTOCOMPACT_PCT_MAX = 90.0
+
+# session.handoff_offer_pct — context-usage percentage at which the agent is
+# nudged to offer a session handoff. SINGLE SOURCE OF TRUTH for the 0-89 range,
+# shared by the dashboard config API write gate and the load-time clamp so the
+# two cannot drift (same pattern as AUTOCOMPACT_PCT_MIN/MAX). 0 is a valid
+# value — it disables the offer — so the floor is 0, not 5. The ceiling is one
+# point below AUTOCOMPACT_PCT_MAX so the offer band can never sit at or above
+# the compaction threshold; the cross-field "< autocompact_pct" invariant is
+# enforced at read time in the consumer, since a static bound cannot see the
+# operator's configured autocompact_pct.
+HANDOFF_OFFER_PCT_MIN = 0.0
+HANDOFF_OFFER_PCT_MAX = 89.0
 
 # ── Load/write bound parity ────────────────────────────────────────────────────
 # Ranges for bounded numeric fields whose LOAD path previously applied no bounds

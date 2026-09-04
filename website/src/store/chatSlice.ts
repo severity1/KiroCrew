@@ -660,12 +660,18 @@ export interface SideState {
  * (`SUGGEST_FOLLOWUP_SCHEMA` + `_redact_followup_item`), and `branch` is
  * regex-gated — but it is still LLM-authored text, so render it as text and
  * never as markup.
+ *
+ * `kind` selects the render variant. 'handover' (a session handoff) reuses the
+ * exact fork+worktree machinery of a plain follow-up — the worktree IS the
+ * handoff — but relabels the primary actions. Absent or 'followup' renders the
+ * default card. Server default is 'followup'.
  */
 export interface FollowupItem {
   title: string
   description: string
   prompt: string
   branch?: string
+  kind?: 'followup' | 'handover'
 }
 
 interface ChatState {
@@ -2757,7 +2763,7 @@ export const warmSlotCache = createAsyncThunk(
 
 export const createSlot = createAsyncThunk<
   ChatSlot,
-  { agent?: string; model?: string; mode?: string; memory_mode?: string; clean_mode?: boolean; folder_id?: string | null; title?: string; color_index?: number | null; color_hex?: string | null; project?: string | null; activate?: boolean; instanceId?: string } | string | undefined,
+  { agent?: string; model?: string; mode?: string; memory_mode?: string; clean_mode?: boolean; folder_id?: string | null; title?: string; color_index?: number | null; color_hex?: string | null; project?: string | null; activate?: boolean; instanceId?: string; forked_from?: string; handoff?: boolean } | string | undefined,
   { fulfilledMeta: { originActiveSlot: string | null; activate: boolean } }
 >(
   'chat/createSlot',
@@ -2786,13 +2792,18 @@ export const createSlot = createAsyncThunk<
     // do so before the user is able to type into it. Defaults to true — every
     // existing caller keeps the create-and-focus behaviour.
     const activate = typeof opts === 'string' ? true : opts?.activate !== false
+    // Lineage: the parent slot this session was spun off from (handover/fork
+    // card) and whether it was a handoff (tangent) vs a plain fork. Threaded to
+    // the create POST so the backend records forked_from/handoff for the tree view.
+    const forkedFrom = typeof opts === 'string' ? undefined : opts?.forked_from
+    const handoff = typeof opts === 'string' ? undefined : opts?.handoff
     // Capture the active slot BEFORE the (potentially slow) create round-trip.
     // The fulfilled reducer compares this against the active slot at resolution
     // time: if the user switched to a different session while the create was
     // pending (e.g. New Chat spun on "Creating" under memory pressure and they
     // moved to another tab), the new slot must NOT hijack the view.
     const originActiveSlot = (getState() as RootState).chat.activeSlot
-    const slot = await api.createChatSlot(undefined, agent, model, mode, memory_mode, title, clean_mode, undefined, folderId || undefined, instanceId)
+    const slot = await api.createChatSlot(undefined, agent, model, mode, memory_mode, title, clean_mode, undefined, folderId || undefined, instanceId, forkedFrom, handoff)
     const dashState = (getState() as RootState).dashboard
     // An explicit color (e.g. carried from a slot being recreated on a
     // mode switch) wins; otherwise fall back to the default-color policy.

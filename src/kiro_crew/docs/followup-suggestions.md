@@ -40,6 +40,53 @@ Calling the tool is the agent's own judgement call; there is no turn-boundary ho
 | **Add to this session** | Pre-fills the current session's composer with the prompt. An unsent draft is preserved — the prompt is appended below it, not written over it. |
 | **Skip** | Dismisses that one suggestion; siblings remain. The card disappears when its last item is gone. |
 
+## Session handoff (kind='handover')
+
+A follow-up item may carry an optional `kind` field, either `"followup"` (the
+default when omitted) or `"handover"`. A `handover` item is the same card
+mechanism turned to a different purpose: instead of a *next* task, it offers to
+**continue the current work in a fresh session** — so the work carries on with a
+clean context window instead of the backend compacting the conversation in
+place. It reuses the exact fork + worktree machinery of a plain follow-up (the
+worktree *is* the handoff); only the framing changes. The card shows a "Session
+handoff" badge and relabels the two primary actions to "Continue in new
+worktree" / "Continue in this session". The `prompt` should be a complete,
+standalone summary of where the work stands and what to do next, because the
+receiving session may have none of the originating context.
+
+The agent decides when to offer one. Two situations prompt it:
+
+- **Context is filling up.** When session context usage enters the band
+  `session.handoff_offer_pct <= pct < session.autocompact_pct`, the agent is
+  nudged (once per band-entry, via a one-shot per-turn context reminder) to
+  consider offering a handoff *before* the autocompactor fires. `handoff_offer_pct`
+  defaults to 55 and must sit below `autocompact_pct` (default 70); set it to 0
+  to disable the offer entirely. If nothing warrants continuing, the agent stays
+  silent and the backend compacts as usual — the offer is an option, never an
+  interruption of a nearly-finished task.
+- **A worthwhile tangent.** The agent may also offer a handover when the work is
+  about to branch into a substantial side-thread better done with its own
+  context.
+
+Because a `handover` item is just a `suggest_followup` item, it inherits every
+guarantee below unchanged: dashboard-and-owner-only delivery, the pre-fill-only
+actions (nothing runs unattended), the validation caps, and credential/URL
+redaction.
+
+### Lineage
+
+A session opened from a handover card records the slot it was spun off from, so
+the relationship is visible after the fact. When the "Continue in new worktree"
+action creates the new session, the create call carries the parent's slot key,
+and the backend stores it on the new slot's ``forked_from`` (the same field a
+plain fork already uses) together with a ``handoff`` boolean that marks the edge
+as a tangent rather than a fork. Both ride the existing slot projection and
+persistence, so they survive a reload. The dashboard's **Session Lineage** view
+(sidebar) reads the live slot list and draws the parent→child forest — a fork
+edge and a handoff edge render with distinct icons, and each node opens that
+session. "Continue in this session" is an in-place continuation of the current
+session, not a new child, so it records no lineage edge.
+
 ## Scope and limits
 
 - **Dashboard surface only.** The tool is **stateless**: `mcp_tools/control.py::suggest_followup` validates the items and returns a session-directive marker carrying no session key. The session-aware consumer (`dashboard/session_directive_apply.py::apply_session_directive`) resolves the authoritative session and applies the card to ITS OWN slot, so a cron, sub-agent, or otherwise tabless caller is refused there rather than posting a card into someone else's session. The gate is a live card surface, not where the conversation started: `suggest_followup` requires both a chat slot and `has_dashboard_surface(session_key)`, so a channel-born session with its dashboard tab open qualifies, while a slot-less caller (a channel transport's `TurnDriver`) is refused even when a tab happens to be open. Every path emits a SEL audit event.

@@ -164,6 +164,51 @@ describe('FollowUpCard', () => {
     await waitFor(() => expect(screen.queryByRole('alert')).not.toBeInTheDocument())
     expect(screen.getByText('B')).toBeInTheDocument()
   })
+
+  it('renders the handover variant with the session-handoff badge and relabelled actions', () => {
+    setup({ items: [item({ kind: 'handover' })] })
+    // Distinct handover affordances.
+    expect(screen.getByText(/session handoff/i)).toBeInTheDocument()
+    expect(screen.getByText(/continue in a fresh session/i)).toBeInTheDocument()
+    // Same three actions, relabelled for the two primary ones.
+    expect(screen.getByRole('button', { name: /continue in new worktree/i })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: /continue in this session/i })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: /skip/i })).toBeInTheDocument()
+    // Default labels must NOT appear on a handover item.
+    expect(screen.queryByRole('button', { name: /start in new worktree/i })).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: /add to this session/i })).not.toBeInTheDocument()
+  })
+
+  it('keeps handover behavior identical — worktree/add-to-session still just pre-fill', () => {
+    const { onAddToSession, onStartInWorktree } = setup({ items: [item({ kind: 'handover' })] })
+    fireEvent.click(screen.getByRole('button', { name: /continue in this session/i }))
+    expect(onAddToSession).toHaveBeenCalledWith(item({ kind: 'handover' }))
+    fireEvent.click(screen.getByRole('button', { name: /continue in new worktree/i }))
+    expect(onStartInWorktree).toHaveBeenCalledWith(item({ kind: 'handover' }))
+  })
+
+  it('renders a plain followup item in the default variant (no handover chrome)', () => {
+    setup({ items: [item({ kind: 'followup' })] })
+    expect(screen.queryByText(/session handoff/i)).not.toBeInTheDocument()
+    expect(screen.getByRole('button', { name: /start in new worktree/i })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: /add to this session/i })).toBeInTheDocument()
+  })
+
+  it('treats an item with kind absent as the default variant', () => {
+    setup()
+    expect(screen.queryByText(/session handoff/i)).not.toBeInTheDocument()
+    expect(screen.getByRole('button', { name: /start in new worktree/i })).toBeInTheDocument()
+  })
+
+  it('renders default and handover items side by side in one card', () => {
+    setup({ items: [item({ title: 'Plain' }), item({ title: 'Handoff', kind: 'handover' })] })
+    expect(screen.getByText('Plain')).toBeInTheDocument()
+    expect(screen.getByText('Handoff')).toBeInTheDocument()
+    expect(screen.getByText(/session handoff/i)).toBeInTheDocument()
+    // The default item keeps its label; the handover item gets the relabelled one.
+    expect(screen.getByRole('button', { name: /start in new worktree/i })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: /continue in new worktree/i })).toBeInTheDocument()
+  })
 })
 
 describe('followup card reducers', () => {

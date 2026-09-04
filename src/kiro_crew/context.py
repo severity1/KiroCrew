@@ -3078,6 +3078,7 @@ class ContextBuilder:
         user_text_range: tuple[int, int] | None = None,
         user_span_out: list[int] | None = None,
         needs_reinjection: bool = False,
+        handoff_offer: bool = False,
         context_groups: frozenset[str] | None = None,
         member: str = "",
     ) -> tuple[str, HookResult]:
@@ -3767,6 +3768,25 @@ class ContextBuilder:
                     "clarifying question — just ask that inline. When in doubt, stay silent. "
                     "Each item carries a complete, standalone handoff prompt; up to 3.)"
                 )
+                # Context is entering the handoff-offer band: nudge the agent to
+                # offer continuing in a FRESH session (carrying a summary) before
+                # the backend compacts in place. One-shot per band-entry — the
+                # flag was consumed when this prompt was built.
+                if handoff_offer:
+                    parts.append(
+                        "\n\n(Context usage is getting high on this session. If the "
+                        "current work has a natural continuation — or you are about to "
+                        "dive into a worthwhile tangent — consider offering the user a "
+                        "HANDOFF to a fresh session so the work continues with a clean "
+                        "context window. Use suggest_followup with an item whose "
+                        "kind='handover' and whose prompt is a complete, standalone "
+                        "summary of where things stand and what to do next; the user "
+                        "chooses to continue in a new session or a new worktree, or to "
+                        "skip. Offer it ONCE, only when there is real work to carry "
+                        "forward — do not interrupt a nearly-finished task, and never "
+                        "hand off silently. If nothing warrants continuing, stay silent "
+                        "and let the backend compact as usual.)"
+                    )
 
         # Widget instructions live in the bundled `widgets` skill.
 

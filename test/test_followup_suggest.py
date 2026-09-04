@@ -156,6 +156,28 @@ class TestSuggestFollowupSchema:
         cleaned = validate_tool_args({"items": [_item(branch="")]}, SUGGEST_FOLLOWUP_SCHEMA)
         assert "branch" not in cleaned["items"][0]
 
+    def test_kind_defaults_to_followup_when_absent(self):
+        # The common case: no kind key -> plain follow-up card. The default is
+        # written back so the frontend never sees an undefined kind.
+        cleaned = validate_tool_args({"items": [_item()]}, SUGGEST_FOLLOWUP_SCHEMA)
+        assert cleaned["items"][0]["kind"] == "followup"
+
+    def test_accepts_kind_handover(self):
+        cleaned = validate_tool_args({"items": [_item(kind="handover")]}, SUGGEST_FOLLOWUP_SCHEMA)
+        assert cleaned["items"][0]["kind"] == "handover"
+
+    def test_accepts_kind_followup_explicit(self):
+        cleaned = validate_tool_args({"items": [_item(kind="followup")]}, SUGGEST_FOLLOWUP_SCHEMA)
+        assert cleaned["items"][0]["kind"] == "followup"
+
+    def test_rejects_unknown_kind(self):
+        with pytest.raises(ValidationError):
+            validate_tool_args({"items": [_item(kind="teleport")]}, SUGGEST_FOLLOWUP_SCHEMA)
+
+    def test_rejects_non_string_kind(self):
+        with pytest.raises(ValidationError):
+            validate_tool_args({"items": [_item(kind=7)]}, SUGGEST_FOLLOWUP_SCHEMA)
+
     def test_strips_hidden_unicode_from_title(self):
         # Zero-width space (Cf) must not survive into the rendered card.
         cleaned = validate_tool_args(

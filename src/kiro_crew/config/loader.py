@@ -155,6 +155,7 @@ from kiro_crew.config.sections import (  # noqa: F401
     DEFAULT_AUTO_INGEST_ARTIFACT_KINDS,
     DEFAULT_AUTOCOMPACT_PCT,
     DEFAULT_CWD_ALLOWED_ROOTS,
+    DEFAULT_HANDOFF_OFFER_PCT,
     DEFAULT_MAX_PARALLEL_STEPS,
     DEFAULT_MODEL,
     DEFAULT_POOL_SIZE,
@@ -165,6 +166,8 @@ from kiro_crew.config.sections import (  # noqa: F401
     EXTRACTION_POOL_SIZE_MIN,
     FOLDER_INGEST_CHUNK_BUDGET_MAX,
     FORWARD_DECLARED_ENV_DEFAULT,
+    HANDOFF_OFFER_PCT_MAX,
+    HANDOFF_OFFER_PCT_MIN,
     IMESSAGE_SERVICES,
     JAIL_MODE_AUTO,
     JAIL_MODE_OFF,
@@ -2281,6 +2284,23 @@ class KiroCrewConfig:
             # A publish failure must never make the config unloadable; cron
             # keeps using the zone it already had.
             logger.warning("Publishing config timezone failed: %s", e)
+        # Cross-field sanity: the handoff-offer band is
+        # ``handoff_offer_pct <= pct < autocompact_pct``. A static bound cannot
+        # see the sibling value, so an operator can set the offer threshold at
+        # or above the compaction threshold — which is SAFE (the band is empty,
+        # so the offer simply never fires) but silent. Warn rather than reject:
+        # a hard cross-field reject at load could brick a hand-edited config,
+        # and 0 is the deliberate "offer disabled" value, not a misconfiguration.
+        _offer = cfg.session.handoff_offer_pct
+        if _offer > 0 and _offer >= cfg.session.autocompact_pct:
+            logger.warning(
+                "session.handoff_offer_pct (%.0f) is >= session.autocompact_pct "
+                "(%.0f): the handoff offer will never fire because the band is "
+                "empty. Set handoff_offer_pct below autocompact_pct to enable it, "
+                "or to 0 to disable it deliberately.",
+                _offer,
+                cfg.session.autocompact_pct,
+            )
         return cfg
 
     @classmethod
@@ -2794,6 +2814,12 @@ class KiroCrewConfig:
                     DEFAULT_AUTOCOMPACT_PCT,
                     lo=AUTOCOMPACT_PCT_MIN,
                     hi=AUTOCOMPACT_PCT_MAX,
+                ),
+                handoff_offer_pct=_safe_float(
+                    session_data.get("handoff_offer_pct", DEFAULT_HANDOFF_OFFER_PCT),
+                    DEFAULT_HANDOFF_OFFER_PCT,
+                    lo=HANDOFF_OFFER_PCT_MIN,
+                    hi=HANDOFF_OFFER_PCT_MAX,
                 ),
                 pool_size=_safe_int(
                     session_data.get("pool_size", DEFAULT_POOL_SIZE),

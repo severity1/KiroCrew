@@ -905,6 +905,17 @@ class _Session:
     # Consumed one-shot by the next prompt builder to re-inject the skills
     # index so the model can still discover skills post-compaction.
     needs_context_reinjection: bool = False
+    # Set one-shot when context usage enters the handoff-offer band
+    # (handoff_offer_pct <= pct < autocompact_pct) and consumed by the next
+    # prompt builder to nudge the agent to offer a session handoff before the
+    # backend compacts in place. Cleared as it is read so the nudge appears
+    # once per band-entry, not on every subsequent turn while still in the band.
+    handoff_offer_pending: bool = False
+    # Latch preventing the handoff-offer nudge from re-arming every turn while
+    # context stays in the band. Set when the offer is armed, cleared once
+    # usage drops back below the offer threshold (a compaction or a fresh
+    # handoff resets context), so the next band-entry can offer again.
+    handoff_offered: bool = False
 
     def adopt_provider(self, provider: LLMProvider) -> None:
         """Swap in a freshly-spawned *provider*, resetting conversation state.
@@ -931,6 +942,8 @@ class _Session:
         self.consecutive_failures = 0
         self.prev_turn_cancelled = False
         self.needs_context_reinjection = False
+        self.handoff_offer_pending = False
+        self.handoff_offered = False
         self.created_at = time.time()
         self.last_used = time.monotonic()
 
@@ -2011,6 +2024,10 @@ class SessionManager:
         """Delegate context accounting and compaction triggering."""
         return self._compaction.check_context_usage(key, provider)
 
+    def maybe_arm_handoff_offer(self, key: str, provider: LLMProvider) -> None:
+        """Arm a one-shot handoff-offer nudge if usage entered the offer band."""
+        self._compaction.maybe_arm_handoff_offer(key, provider)
+
     def set_autocompact_pct(self, key: str, pct: float | None) -> None:
         """Set or clear (``None``) *key*'s per-session compaction threshold.
 
@@ -2057,6 +2074,14 @@ class SessionManager:
     def consume_needs_reinjection(self, key: str) -> bool:
         """Consume a live session's reinjection marker."""
         return self._compaction.consume_needs_reinjection(key)
+
+    def mark_handoff_offer_pending(self, key: str) -> None:
+        """Mark a live session to nudge a handoff offer on its next turn."""
+        self._compaction.mark_handoff_offer_pending(key)
+
+    def consume_handoff_offer_pending(self, key: str) -> bool:
+        """Consume a live session's one-shot handoff-offer marker."""
+        return self._compaction.consume_handoff_offer_pending(key)
 
     def consume_replay_suppression(self, key: str) -> bool:
         """Read *and clear* whether *key*'s next cold start must skip replay.

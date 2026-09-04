@@ -1,5 +1,5 @@
 import { memo, useEffect, useRef, useState } from 'react'
-import { GitBranch, Lightbulb, Plus, X } from 'lucide-react'
+import { ArrowRightLeft, GitBranch, Lightbulb, Plus, X } from 'lucide-react'
 import type { FollowupItem } from '../store/chatSlice'
 
 import { i18nT } from '../i18n/t'
@@ -101,11 +101,25 @@ function FollowUpCard({
       {items.map((item, index) => {
         const busy = busyIndex === index
         const error = errors[index]
+        const isHandover = item.kind === 'handover'
         return (
           <div key={`${item.title}-${index}`} className={`px-4 py-3 ${index > 0 ? 'border-t border-border' : ''}`}>
+            {isHandover && (
+              <div className="flex items-center gap-1.5 mb-1.5">
+                <ArrowRightLeft size={12} className="text-accent" aria-hidden="true" />
+                <span className="text-[10px] font-semibold uppercase tracking-wider text-accent">
+                  {i18nT('components.followUpCard.session_handoff')}
+                </span>
+              </div>
+            )}
             <div className="text-[13px] font-medium text-text">{item.title}</div>
             {item.description && (
               <div className="text-[12px] text-muted mt-1 leading-relaxed">{item.description}</div>
+            )}
+            {isHandover && (
+              <div className="text-[11px] text-muted mt-1 italic">
+                {i18nT('components.followUpCard.continue_in_a_fresh_session')}
+              </div>
             )}
             <div className="flex flex-wrap items-center gap-2 mt-2.5">
               <button
@@ -130,7 +144,11 @@ function FollowUpCard({
                 }`}
               >
                 <GitBranch size={13} aria-hidden="true" />
-                {busy ? i18nT('components.followUpCard.creating_worktree') : i18nT('components.followUpCard.start_in_new_worktree')}
+                {busy
+                  ? i18nT('components.followUpCard.creating_worktree')
+                  : isHandover
+                    ? i18nT('components.followUpCard.continue_in_new_worktree')
+                    : i18nT('components.followUpCard.start_in_new_worktree')}
               </button>
               <button
                 onClick={() => onAddToSession(item)}
@@ -138,7 +156,10 @@ function FollowUpCard({
                 title={i18nT('components.followUpCard.pre_fill_this_session_s_composer_with_the_expand')}
                 className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-md text-[12px] font-medium cursor-pointer transition-all disabled:opacity-40 disabled:cursor-not-allowed border border-border text-muted bg-bg hover:text-text hover:border-accent/40"
               >
-                <Plus size={13} aria-hidden="true" /> {i18nT('components.followUpCard.add_to_this_session')}
+                <Plus size={13} aria-hidden="true" />{' '}
+                {isHandover
+                  ? i18nT('components.followUpCard.continue_in_this_session')
+                  : i18nT('components.followUpCard.add_to_this_session')}
               </button>
               <button
                 onClick={() => onSkip(index)}

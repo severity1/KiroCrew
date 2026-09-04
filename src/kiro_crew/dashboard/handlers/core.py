@@ -36,6 +36,8 @@ from kiro_crew.config.loader import (
     EXTRACTION_POOL_SIZE_MAX,
     EXTRACTION_POOL_SIZE_MIN,
     FOLDER_INGEST_CHUNK_BUDGET_MAX,
+    HANDOFF_OFFER_PCT_MAX,
+    HANDOFF_OFFER_PCT_MIN,
     MAX_SUBAGENTS_FIXED_FLOOR,
     MCP_PROBE_TIMEOUT_MAX,
     MCP_PROBE_TIMEOUT_MIN,
@@ -1752,6 +1754,15 @@ _EDITABLE_CONFIG: dict[str, dict] = {
         "type": "float",
         "min": AUTOCOMPACT_PCT_MIN,
         "max": AUTOCOMPACT_PCT_MAX,
+    },
+    # Range shared with the load-time clamp in config/loader.py — one constant
+    # pair, so the write gate and the load path cannot drift. The cross-field
+    # "< session.autocompact_pct" invariant is enforced at read time in the
+    # consumer, not here, since a static bound cannot see the sibling value.
+    "session.handoff_offer_pct": {
+        "type": "float",
+        "min": HANDOFF_OFFER_PCT_MIN,
+        "max": HANDOFF_OFFER_PCT_MAX,
     },
     "session.pool_size": {"type": "int", "min": 0, "max": 10},
     "session.pool_agent": {"type": "str", "values_fn": _agent_values},

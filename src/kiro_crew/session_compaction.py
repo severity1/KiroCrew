@@ -232,6 +232,20 @@ class CompactionCoordinator:
         session.needs_context_reinjection = False
         return True
 
+    def mark_handoff_offer_pending(self, key: str) -> None:
+        """Flag the live session to offer a handoff on its next turn."""
+        session = self._owner._sessions.get(self._owner._fold_key(key))
+        if session is not None:
+            session.handoff_offer_pending = True
+
+    def consume_handoff_offer_pending(self, key: str) -> bool:
+        """Consume the one-shot handoff-offer flag."""
+        session = self._owner._sessions.get(self._owner._fold_key(key))
+        if session is None or not session.handoff_offer_pending:
+            return False
+        session.handoff_offer_pending = False
+        return True
+
     def set_autocompact_pct(self, key: str, pct: float | None) -> None:
         """Set or clear (``None``) this session's compaction-threshold override.
 
@@ -250,6 +264,45 @@ class CompactionCoordinator:
         return self.state.pct_overrides.get(
             self._owner._fold_key(key), self._owner._cfg.session.autocompact_pct
         )
+
+    def maybe_arm_handoff_offer(self, key: str, provider: LLMProvider) -> None:
+        """Arm a one-shot handoff-offer nudge when usage enters the offer band.
+
+        The band is ``handoff_offer_pct <= pct < effective_autocompact_pct``:
+        below it there is nothing to offer, at/above the compaction threshold
+        the backend's own autocompactor is the right tool. ``handoff_offer_pct``
+        of 0 disables the offer. A per-session latch (``handoff_offered``) keeps
+        the nudge from re-arming every turn while usage lingers in the band; the
+        latch clears once usage drops back below the offer threshold — which a
+        compaction or a fresh handoff does — so a later band-entry offers again.
+        """
+        offer_pct = self._owner._cfg.session.handoff_offer_pct
+        if offer_pct <= 0:
+            return
+        session = self._owner._sessions.get(self._owner._fold_key(key))
+        if session is None:
+            return
+        pct = provider.context_usage_pct()
+        # Ignore a pct that no telemetry has confirmed for this binding (the same
+        # guard the compaction gate uses): a stale/unknown reading must not arm
+        # an offer on what may be an empty conversation.
+        if pct <= 0 or self._deps.context_pct_is_unknown(provider):
+            return
+        if pct < offer_pct:
+            # Lazy re-arm: the latch clears here, on the first turn that observes
+            # usage back below the offer floor. A warm-pool re-bind clears it
+            # eagerly (``adopt_provider``); an in-place compaction keeps the
+            # session object, so its clear waits for the next turn's sub-floor
+            # reading — which a compaction that dropped context well below the
+            # floor produces, so the next band-entry offers again.
+            session.handoff_offered = False
+            return
+        if pct >= self.effective_autocompact_pct(key):
+            # In compaction territory — the autocompactor owns this band.
+            return
+        if not session.handoff_offered:
+            session.handoff_offer_pending = True
+            session.handoff_offered = True
 
     def drop_autocompact_overrides_matching(
         self, exact_keys: set[str], folded_keys: set[str], fold: Callable[[str], str]

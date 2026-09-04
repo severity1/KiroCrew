@@ -1795,9 +1795,13 @@
       "send_now_2": "Send now: {{option}}"
     },
     "followUpCard": {
+      "continue_in_a_fresh_session": "Continue in a fresh session",
+      "continue_in_new_worktree": "Continue in new worktree",
+      "continue_in_this_session": "Continue in this session",
       "create_worktree_and_open_session": "Create a git worktree from {{path}} and open a new session there",
       "creating_worktree": "Creating worktree…",
       "failed_to_create_worktree": "Failed to create worktree",
+      "session_handoff": "Session handoff",
       "start_in_new_worktree": "Start in new worktree",
       "this_session_has_no_project_directory_so_there_i": "This session has no project directory, so there is no repository to branch from",
       "worktree_disabled_no_project_directory": "\"Add to this session\" pre-fills the composer — nothing is sent until you press send. Worktrees are unavailable here: this session has no project directory (pick one with the composer's Project chip)."
@@ -2307,6 +2311,12 @@
     "sessionGridView": {
       "fork_child_session": "Fork {{name}} (child session)",
       "no_session_to_fork_yet": "No session to fork yet"
+    },
+    "sessionLineage": {
+      "fork_edge": "Forked from parent session",
+      "handoff_edge": "Handed off from parent session",
+      "title": "Session lineage",
+      "toggle_children": "Toggle child sessions"
     },
     "settings": {
       "click_to_reset": "Click to reset"

@@ -1447,6 +1447,15 @@ MAX_FOLLOWUP_DESCRIPTION = 600
 MAX_FOLLOWUP_PROMPT = 8_000
 MAX_FOLLOWUP_BRANCH = 80
 
+# Follow-up item flavour. "followup" (the default when the key is absent) is a
+# plain next-task card; "handover" renders the context-handoff variant whose
+# prompt is a standalone summary the user carries into a fresh session. An enum
+# rather than a free string so the frontend can branch rendering on a closed
+# set — an unknown kind is rejected at both validation gates.
+FOLLOWUP_KIND_FOLLOWUP = "followup"
+FOLLOWUP_KIND_HANDOVER = "handover"
+FOLLOWUP_KINDS = frozenset({FOLLOWUP_KIND_FOLLOWUP, FOLLOWUP_KIND_HANDOVER})
+
 
 def _validate_followup_items(args: dict[str, Any]) -> None:
     """Validate + sanitize each follow-up item dict in place.
@@ -1460,7 +1469,7 @@ def _validate_followup_items(args: dict[str, Any]) -> None:
     items = args.get("items")
     if not isinstance(items, list) or not items:
         raise ValidationError("items", "required (at least one follow-up item)")
-    allowed_keys = {"title", "description", "prompt", "branch"}
+    allowed_keys = {"title", "description", "prompt", "branch", "kind"}
     required_keys = ("title", "description", "prompt")
     limits = {
         "title": MAX_FOLLOWUP_TITLE,
@@ -1505,6 +1514,20 @@ def _validate_followup_items(args: dict[str, Any]) -> None:
             if not is_valid_followup_branch(branch):
                 raise ValidationError("items", f"item[{idx}].branch: invalid git branch name")
             item["branch"] = branch
+        kind = item.get("kind")
+        if kind is None:
+            # Absent is the common case: default to a plain follow-up card.
+            item["kind"] = FOLLOWUP_KIND_FOLLOWUP
+        else:
+            if not isinstance(kind, str):
+                raise ValidationError("items", f"item[{idx}].kind: expected string")
+            kind = sanitize_string(kind)
+            if kind not in FOLLOWUP_KINDS:
+                raise ValidationError(
+                    "items",
+                    f"item[{idx}].kind: must be one of {sorted(FOLLOWUP_KINDS)}",
+                )
+            item["kind"] = kind
 
 
 SUGGEST_FOLLOWUP_SCHEMA = ToolSchema(
